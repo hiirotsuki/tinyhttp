@@ -3,11 +3,11 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-int Utf8ToWide(const char *utf8, wchar_t *wide_str, int max_len)
+int Utf8ToWide(const char *utf8, wchar_t *wideStr, int maxLen)
 {
 	const unsigned char *src = (const unsigned char *)utf8;
-	wchar_t *dst = wide_str;
-	wchar_t *end = wide_str + max_len - 1;
+	wchar_t *dst = wideStr;
+	wchar_t *end = wideStr + maxLen - 1;
 	
 	while (*src && dst < end)
 	{
@@ -56,14 +56,14 @@ int Utf8ToWide(const char *utf8, wchar_t *wide_str, int max_len)
 	}
 
 	*dst = L'\0';
-	return (int)(dst - wide_str + 1);
+	return (int)(dst - wideStr + 1);
 }
 
-int WideToUtf8(const wchar_t *wide_str, char *utf8, int max_len)
+int WideToUtf8(const wchar_t *wideStr, char *utf8, int maxLen)
 {
-	const wchar_t *src = wide_str;
+	const wchar_t *src = wideStr;
 	unsigned char *dst = (unsigned char *)utf8;
-	unsigned char *end = (unsigned char *)utf8 + max_len - 1;
+	unsigned char *end = (unsigned char *)utf8 + maxLen - 1;
 
 	while (*src && dst < end)
 	{
