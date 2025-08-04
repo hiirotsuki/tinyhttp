@@ -488,9 +488,9 @@ unsigned int ReadPortFromIni(void)
 	}
 
 	lstrcpyW(iniPath, exePath);
-	lstrcpyW(lastSlash + 1, L"servefiles.ini");
+	lstrcpyW(lastSlash + 1, L"tinyhttp.ini");
 
-	unsigned int port = GetPrivateProfileIntW(L"servefiles", L"port", 8080, iniPath);
+	unsigned int port = GetPrivateProfileIntW(L"tinyhttp", L"port", 8080, iniPath);
 
 	if (port < 1 || port > 65535)
 		port = 8080;
