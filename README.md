@@ -3,7 +3,7 @@
 Have you ever had the need to share files from one computer to another over a network, but all available options are either broken or overcomplicated for simple file transfer? Look no further than to tinyhttp!
 
  - can be built without dependency on msvcrt or ucrt (or any other libc)
- - highly portable C99 code, tested with mingw-w64, pelles C
+ - highly portable C89 code, tested with mingw-w64, Pelles C, Visual C++ 4.0
  - only supports HTTP GET requests
 
 ## Usage
