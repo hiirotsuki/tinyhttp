@@ -1,19 +1,34 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 
 #define WIN32_LEAN_AND_MEAN
+#if _MSC_VER < 1100
+#include <winsock.h>
+#include <windows.h>
+#else
 #include <winsock2.h>
 #include <windows.h>
 #include <ws2tcpip.h>
-#include <iphlpapi.h>
+#endif
 
+#include "unicode.h"
 #include "util.h"
 #include "mime.h"
+
+#if _MSC_VER > 1000
+#include "iphlp.h"
+#endif
 
 #ifndef __GNUC__
 #define __attribute__(x)
 #endif
 
-void ConsoleWrite(const char *message);
+#ifndef SD_SEND
+#define SD_SEND 1
+#endif
+
+#ifndef INVALID_FILE_ATTRIBUTES
+#define INVALID_FILE_ATTRIBUTES ((DWORD)-1)
+#endif
 
 #define BUFFER_SIZE 8192
 #define MAX_PATH_LEN 1024
@@ -94,116 +109,15 @@ void UrlDecode(char *dst, const char *src)
 	*p = '\0';
 }
 
-int Utf8ToWide(const char *utf8, wchar_t *wide_str, int max_len)
-{
-	const unsigned char *src = (const unsigned char *)utf8;
-	wchar_t *dst = wide_str;
-	wchar_t *end = wide_str + max_len - 1;
-	
-	while (*src && dst < end)
-	{
-		if (*src < 0x80)
-		{
-			*dst++ = *src++;
-		}
-		else if ((*src & 0xE0) == 0xC0)
-		{
-			if (src[1] && (src[1] & 0xC0) == 0x80)
-			{
-				*dst++ = ((src[0] & 0x1F) << 6) | (src[1] & 0x3F);
-				src += 2;
-			}
-			else break;
-		}
-		else if ((*src & 0xF0) == 0xE0)
-		{
-			if (src[1] && src[2] && (src[1] & 0xC0) == 0x80 && (src[2] & 0xC0) == 0x80)
-			{
-				*dst++ = ((src[0] & 0x0F) << 12) | ((src[1] & 0x3F) << 6) | (src[2] & 0x3F);
-				src += 3;
-			}
-			else break;
-		}
-		else if ((*src & 0xF8) == 0xF0)
-		{
-			if (src[1] && src[2] && src[3] && (src[1] & 0xC0) == 0x80 && (src[2] & 0xC0) == 0x80 && (src[3] & 0xC0) == 0x80)
-			{
-				unsigned int codepoint = ((src[0] & 0x07) << 18) | ((src[1] & 0x3F) << 12) | 
-										((src[2] & 0x3F) << 6) | (src[3] & 0x3F);
-				if (codepoint > 0xFFFF && dst + 1 < end)
-				{
-					codepoint -= 0x10000;
-					*dst++ = 0xD800 + (codepoint >> 10);
-					*dst++ = 0xDC00 + (codepoint & 0x3FF);
-				}
-				else if (codepoint <= 0xFFFF)
-					*dst++ = (wchar_t)codepoint;
-
-				src += 4;
-			}
-			else break;
-		}
-		else src++;
-	}
-
-	*dst = L'\0';
-	return (int)(dst - wide_str + 1);
-}
-
-int WideToUtf8(const wchar_t *wide_str, char *utf8, int max_len)
-{
-	const wchar_t *src = wide_str;
-	unsigned char *dst = (unsigned char *)utf8;
-	unsigned char *end = (unsigned char *)utf8 + max_len - 1;
-
-	while (*src && dst < end)
-	{
-		unsigned int codepoint = *src;
-
-		if (codepoint >= 0xD800 && codepoint <= 0xDBFF && src[1] >= 0xDC00 && src[1] <= 0xDFFF)
-		{
-			codepoint = 0x10000 + ((codepoint & 0x3FF) << 10) + (src[1] & 0x3FF);
-			src += 2;
-		}
-		else src++;
-		
-		if (codepoint < 0x80)
-		{
-			*dst++ = (unsigned char)codepoint;
-		}
-		else if (codepoint < 0x800)
-		{
-			if (dst + 1 >= end) break;
-			*dst++ = 0xC0 | (codepoint >> 6);
-			*dst++ = 0x80 | (codepoint & 0x3F);
-		}
-		else if (codepoint < 0x10000)
-		{
-			if (dst + 2 >= end) break;
-			*dst++ = 0xE0 | (codepoint >> 12);
-			*dst++ = 0x80 | ((codepoint >> 6) & 0x3F);
-			*dst++ = 0x80 | (codepoint & 0x3F);
-		}
-		else
-		{
-			if (dst + 3 >= end) break;
-			*dst++ = 0xF0 | (codepoint >> 18);
-			*dst++ = 0x80 | ((codepoint >> 12) & 0x3F);
-			*dst++ = 0x80 | ((codepoint >> 6) & 0x3F);
-			*dst++ = 0x80 | (codepoint & 0x3F);
-		}
-	}
-	
-	*dst = '\0';
-	return (int)((char *)dst - utf8 + 1);
-}
-
 void SendFile(SOCKET clientSocket, const char *filePath, char *fileBuffer)
 {
+	HANDLE hFile;
+	char header[512];
 	wchar_t widePath[MAX_PATH_LEN];
+
 	Utf8ToWide(filePath, widePath, MAX_PATH_LEN);
-	
-	HANDLE hFile = CreateFileW(widePath, GENERIC_READ, FILE_SHARE_READ, 
+
+	hFile = CreateFileW(widePath, GENERIC_READ, FILE_SHARE_READ, 
 							   NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (hFile == INVALID_HANDLE_VALUE)
 	{
@@ -211,7 +125,6 @@ void SendFile(SOCKET clientSocket, const char *filePath, char *fileBuffer)
 		return;
 	}
 
-	char header[512];
 	wsprintfA(header, "HTTP/1.1 200 OK\r\n"
 					 "Content-Type: %s\r\n"
 					 "Content-Length: %lu\r\n\r\n", GetMimeType(filePath), GetFileSize(hFile, NULL));
@@ -229,13 +142,13 @@ void SendFile(SOCKET clientSocket, const char *filePath, char *fileBuffer)
 
 void SendDirectoryListing(SOCKET clientSocket, const char *path)
 {
-	WIN32_FIND_DATAW findData;
 	HANDLE hFind;
+	WIN32_FIND_DATAW findData;
 	wchar_t searchPath[MAX_PATH_LEN];
 	char htmlLine[MAX_PATH_LEN + 100];
 	char filenameUtf8[MAX_PATH_LEN];
-
 	wchar_t widePath[MAX_PATH_LEN];
+	
 	Utf8ToWide(path, widePath, MAX_PATH_LEN);
 	wsprintfW(searchPath, L"%s\\*", (lstrcmpA(path, ".") == 0) ? L"." : widePath);
 
@@ -313,19 +226,19 @@ int ParseHttpRequest(const char *buffer, char *method, char *path, char *version
 
 void HandleRequest(SOCKET clientSocket, threadBuffers *buffers)
 {
-	char *p;
-
-	if (!buffers || !buffers->requestBuffer)
-		return;
-
+	char *p, *lineEnd;
 	char method[16], path[MAX_PATH_LEN], version[16];
 	char decodedPath[MAX_PATH_LEN];
 	char logBuffer[512];
 	WIN32_FIND_DATAW findData;
 	HANDLE hFind;
 	wchar_t widePath[MAX_PATH_LEN];
+	int bytesRead, len;
 
-	int bytesRead = recv(clientSocket, buffers->requestBuffer, BUFFER_SIZE - 1, 0);
+	if (!buffers || !buffers->requestBuffer)
+		return;
+
+	bytesRead = recv(clientSocket, buffers->requestBuffer, BUFFER_SIZE - 1, 0);
 
 	if (bytesRead <= 0)
 		return;
@@ -333,7 +246,7 @@ void HandleRequest(SOCKET clientSocket, threadBuffers *buffers)
 	buffers->requestBuffer[bytesRead] = '\0';
 
 	ConsoleWrite("Request: ");
-	char *lineEnd = xstrchr(buffers->requestBuffer, '\r');
+	lineEnd = xstrchr(buffers->requestBuffer, '\r');
 	if (lineEnd)
 	{
 		int requestLen = lineEnd - buffers->requestBuffer;
@@ -377,19 +290,22 @@ void HandleRequest(SOCKET clientSocket, threadBuffers *buffers)
 		return;
 	}
 
-	char safePath[256];
-	int pathLen = lstrlenA(path);
-	if (pathLen > 250)
+	/* :-) */
 	{
-		lstrcpynA(safePath, path, 247);
-		lstrcatA(safePath, "...");
+		char safePath[256];
+		int pathLen = lstrlenA(path);
+		if (pathLen > 250)
+		{
+			lstrcpynA(safePath, path, 247);
+			lstrcatA(safePath, "...");
+		}
+		else
+		{
+			lstrcpyA(safePath, path);
+		}
+		wsprintfA(logBuffer, "Method: %s, Path: %s\r\n", method, safePath);
+		ConsoleWrite(logBuffer);
 	}
-	else
-	{
-		lstrcpyA(safePath, path);
-	}
-	wsprintfA(logBuffer, "Method: %s, Path: %s\r\n", method, safePath);
-	ConsoleWrite(logBuffer);
 
 	if (lstrcmpA(method, "GET") != 0)
 	{
@@ -411,7 +327,7 @@ void HandleRequest(SOCKET clientSocket, threadBuffers *buffers)
 	for (p = decodedPath; *p; p++)
 		if (*p == '/') *p = '\\';
 
-	int len = lstrlenA(decodedPath);
+	len = lstrlenA(decodedPath);
 	if (len > 1 && decodedPath[len - 1] == '\\')
 		decodedPath[len - 1] = '\0';
 	
@@ -472,15 +388,16 @@ DWORD WINAPI ClientThread(LPVOID param)
 	return 0;
 }
 
-unsigned int ReadPortFromIni(void)
+unsigned short ReadPortFromIni(void)
 {
-	wchar_t *p;
+	unsigned short port;
+	wchar_t *p, *lastSlash;
 	wchar_t iniPath[MAX_PATH];
 	wchar_t exePath[MAX_PATH];
 	
 	GetModuleFileNameW(NULL, exePath, MAX_PATH);
 
-	wchar_t *lastSlash = exePath;
+	lastSlash = exePath;
 	for (p = exePath; *p; p++)
 	{
 		if (*p == L'\\' || *p == L'/')
@@ -490,91 +407,12 @@ unsigned int ReadPortFromIni(void)
 	lstrcpyW(iniPath, exePath);
 	lstrcpyW(lastSlash + 1, L"tinyhttp.ini");
 
-	unsigned int port = GetPrivateProfileIntW(L"tinyhttp", L"port", 8080, iniPath);
+	port = GetPrivateProfileIntW(L"tinyhttp", L"port", 8080, iniPath);
 
-	if (port < 1 || port > 65535)
+	if (port < 1 || port > sizeof(u_short))
 		port = 8080;
 	
 	return port;
-}
-
-void ConsoleWrite(const char *message)
-{
-	HANDLE hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (hStdout != INVALID_HANDLE_VALUE)
-	{
-		wchar_t wideBuffer[4096];
-		int wLen = Utf8ToWide(message, wideBuffer, sizeof(wideBuffer) / sizeof(wchar_t));
-		if (wLen > 0)
-		{
-			__attribute__((unused)) DWORD written;
-			WriteConsoleW(hStdout, wideBuffer, wLen - 1, &written, NULL);
-		}
-	}
-}
-
-void DisplayAvailableIPs(unsigned int port)
-{
-	char buffer[512];
-	DWORD bufferSize = 15000;
-	PIP_ADAPTER_INFO adapterInfo = HeapAlloc(GetProcessHeap(), 0, bufferSize);
-	
-	if (!adapterInfo)
-	{
-		ConsoleWrite("Error: Failed to allocate memory for adapter info\r\n");
-		return;
-	}
-	
-	DWORD result = GetAdaptersInfo(adapterInfo, &bufferSize);
-	
-	if (result == ERROR_BUFFER_OVERFLOW)
-	{
-		HeapFree(GetProcessHeap(), 0, adapterInfo);
-		adapterInfo = HeapAlloc(GetProcessHeap(), 0, bufferSize);
-		if (!adapterInfo)
-		{
-			ConsoleWrite("Error: Failed to reallocate memory for adapter info\r\n");
-			return;
-		}
-		result = GetAdaptersInfo(adapterInfo, &bufferSize);
-	}
-	
-	if (result == NO_ERROR)
-	{
-		ConsoleWrite("\r\nServer accessible at:\r\n");
-		wsprintfA(buffer, "  http://localhost:%d/\r\n", port);
-		ConsoleWrite(buffer);
-		wsprintfA(buffer, "  http://127.0.0.1:%d/\r\n", port);
-		ConsoleWrite(buffer);
-		
-		PIP_ADAPTER_INFO adapter = adapterInfo;
-		while (adapter)
-		{
-			if (adapter->Type == MIB_IF_TYPE_ETHERNET)
-			{
-				PIP_ADDR_STRING addrString = &adapter->IpAddressList;
-				while (addrString)
-				{
-					if (lstrcmpA(addrString->IpAddress.String, "0.0.0.0") != 0 &&
-						lstrcmpA(addrString->IpAddress.String, "127.0.0.1") != 0)
-					{
-						wsprintfA(buffer, "  http://%s:%d\r\n", 
-								 addrString->IpAddress.String, port);
-						ConsoleWrite(buffer);
-					}
-					addrString = addrString->Next;
-				}
-			}
-			adapter = adapter->Next;
-		}
-		ConsoleWrite("\r\n");
-	}
-	else
-	{
-		ConsoleWrite("Error: Failed to get adapter information\r\n");
-	}
-	
-	HeapFree(GetProcessHeap(), 0, adapterInfo);
 }
 
 #if defined(_NOCRT)
@@ -583,15 +421,28 @@ int mainCRTStartup(void)
 int main(int argc, char *argv[])
 #endif
 {
+	BOOL opt = TRUE;
 	WSADATA wsaData;
 	SOCKET serverSocket, clientSocket;
 	struct sockaddr_in serverAddr = {0};
 	struct sockaddr_in clientAddr = {0};
 	int clientLen = sizeof(clientAddr);
 	char buffer[256];
-	unsigned int port = ReadPortFromIni();
+	unsigned short port = ReadPortFromIni();
+	wchar_t exePath[MAX_PATH], wwwPath[MAX_PATH];
+	wchar_t *lastSlash;
+	char wwwUtf8[MAX_PATH];
 
+#ifndef _NOCRT
+	(void)argc;
+	(void)argv;
+#endif
+
+#if _MSC_VER > 1000
+	if (WSAStartup(MAKEWORD(1, 1), &wsaData) != 0)
+#else
 	if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
+#endif
 	{
 		ConsoleWrite("Error: WSAStartup failed\r\n");
 		return 1;
@@ -605,7 +456,6 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	BOOL opt = TRUE;
 	if (setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, (char*)&opt, sizeof(opt)) == SOCKET_ERROR)
 	{
 		ConsoleWrite("Error: setsockopt failed\r\n");
@@ -635,15 +485,17 @@ int main(int argc, char *argv[])
 	}
 
 	ConsoleWrite("Win32 HTTP Server started successfully!\r\n");
+
+	/* TODO: figure out when this was introduced... */
+#if _MSC_VER > 1000
 	DisplayAvailableIPs(port);
-	
-	wchar_t exePath[MAX_PATH];
+#endif
+
 	GetModuleFileNameW(NULL, exePath, MAX_PATH);
-	
-	wchar_t *lastSlash = xstrrchrW(exePath, L'\\');
+
+	lastSlash = xstrrchrW(exePath, L'\\');
 	*lastSlash = L'\0';
 
-	wchar_t wwwPath[MAX_PATH];
 	lstrcpyW(wwwPath, exePath);
 	lstrcatW(wwwPath, L"\\www");
 
@@ -658,7 +510,6 @@ int main(int argc, char *argv[])
 
 	ConsoleWrite("Serving directory: ");
 
-	char wwwUtf8[MAX_PATH];
 	WideToUtf8(wwwPath, wwwUtf8, sizeof(wwwUtf8));
 	ConsoleWrite(wwwUtf8);
 	ConsoleWrite("\r\n");
@@ -667,6 +518,7 @@ int main(int argc, char *argv[])
 
 	while (1)
 	{
+		HANDLE threadHandle;
 		clientSocket = accept(serverSocket, (struct sockaddr *)&clientAddr, &clientLen);
 		if (clientSocket == INVALID_SOCKET)
 			continue;
@@ -676,7 +528,7 @@ int main(int argc, char *argv[])
 				ntohs(clientAddr.sin_port));
 		ConsoleWrite(buffer);
 
-		HANDLE threadHandle = CreateThread(NULL, 0, ClientThread, (LPVOID)clientSocket, 0, NULL);
+		threadHandle = CreateThread(NULL, 0, ClientThread, (LPVOID)clientSocket, 0, NULL);
 		if (threadHandle == NULL)
 		{
 			ConsoleWrite("Error: Failed to create thread\r\n");

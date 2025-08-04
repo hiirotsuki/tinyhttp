@@ -3,6 +3,12 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include "unicode.h"
+
+#ifndef __GNUC__
+#define __attribute__(x)
+#endif
+
 char *xstrrchr(const char *s, int c)
 {
 	int len = lstrlenA(s);
@@ -33,4 +39,19 @@ char *xstrchr(const char *str, int c)
 		str++;
 	}
 	return (*str == c) ? (char *)str : NULL;
+}
+
+void ConsoleWrite(const char *message)
+{
+	HANDLE hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (hStdout != INVALID_HANDLE_VALUE)
+	{
+		wchar_t wideBuffer[4096];
+		int wLen = Utf8ToWide(message, wideBuffer, sizeof(wideBuffer) / sizeof(wchar_t));
+		if (wLen > 0)
+		{
+			__attribute__((unused)) DWORD written;
+			WriteConsoleW(hStdout, wideBuffer, wLen - 1, &written, NULL);
+		}
+	}
 }

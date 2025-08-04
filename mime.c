@@ -8,12 +8,13 @@
 
 const char *GetMimeType(const char *filename)
 {
+	const char *ext = NULL;
 	const char *dot = xstrrchr(filename, '.');
 
 	if (!dot)
 		return "application/octet-stream";
 
-	const char *ext = dot + 1;
+	ext = dot + 1;
 
 	if (lstrcmpiA(ext, "txt") == 0) return "text/plain; charset=utf-8";
 	if (lstrcmpiA(ext, "html") == 0) return "text/html; charset=utf-8";

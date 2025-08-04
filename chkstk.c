@@ -1,5 +1,9 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 
+#ifndef __GNUC__
+#define __attribute__(x)
+#endif
+
 #if defined(__GNUC__) && defined(_NOCRT)
 #ifdef __x86_64__
 __asm__(
@@ -50,4 +54,6 @@ __asm__(
 	"	ret\n"
 );
 #endif
+#else
+__attribute__((unused)) static int dummy = 0;
 #endif
