@@ -41,6 +41,14 @@ char *xstrchr(const char *str, int c)
 	return (*str == c) ? (char *)str : NULL;
 }
 
+void *xmemchr(const void *str, int c, size_t len)
+{
+	const unsigned char *p = str;
+	c = (unsigned char)c;
+	for(; len && *p != c; p++, len--);
+	return len ? (void *)p : NULL;
+}
+
 void ConsoleWrite(const char *message)
 {
 	HANDLE hStdout = GetStdHandle(STD_OUTPUT_HANDLE);

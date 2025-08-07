@@ -111,6 +111,7 @@ void UrlDecode(char *dst, const char *src)
 
 void SendFile(SOCKET clientSocket, const char *filePath, char *fileBuffer)
 {
+	const char *mimeType;
 	HANDLE hFile;
 	char header[512];
 	wchar_t widePath[MAX_PATH_LEN];
@@ -125,6 +126,10 @@ void SendFile(SOCKET clientSocket, const char *filePath, char *fileBuffer)
 		return;
 	}
 
+	mimeType = GetMimeType(filePath);
+	ConsoleWrite("mimeType: ");
+	ConsoleWrite(mimeType);
+	ConsoleWrite("\n");
 	wsprintfA(header, "HTTP/1.1 200 OK\r\n"
 					 "Content-Type: %s\r\n"
 					 "Content-Length: %lu\r\n\r\n", GetMimeType(filePath), GetFileSize(hFile, NULL));
@@ -303,7 +308,7 @@ void HandleRequest(SOCKET clientSocket, threadBuffers *buffers)
 		{
 			lstrcpyA(safePath, path);
 		}
-		wsprintfA(logBuffer, "Method: %s, Path: %s\r\n", method, safePath);
+		wsprintfA(logBuffer, "Method: %s: %s\r\n", method, safePath);
 		ConsoleWrite(logBuffer);
 	}
 
@@ -515,6 +520,9 @@ int main(int argc, char *argv[])
 	ConsoleWrite("\r\n");
 
 	ConsoleWrite("Press Ctrl+C to stop\r\n");
+
+	/* load mime types*/
+	LoadMimeTypes("mime.txt"); /* temporary */
 
 	while (1)
 	{

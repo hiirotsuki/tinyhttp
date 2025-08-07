@@ -6,16 +6,114 @@
 #include "mime.h"
 #include "util.h"
 
+struct mimeType *mimeTypes;
+size_t mimeTypesSize;
+
+struct mimeType
+{
+	const char *ext;
+	const char *mime;
+};
+
+int LoadMimeTypes(const char *filename)
+{
+	char *p;
+	DWORD size;
+	HANDLE hMem = NULL;
+	HANDLE hStructArray = NULL;
+	size_t lineCount = 0, i;
+	HANDLE hFile = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+	if(hFile == INVALID_HANDLE_VALUE)
+		return 0;
+
+	size = GetFileSize(hFile, NULL);
+	if(size == INVALID_FILE_SIZE)
+		goto error;
+
+	hMem = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size + 1);
+	if(!hMem)
+		goto error;
+
+	ReadFile(hFile, hMem, size, NULL, NULL);
+
+	p = (char *)hMem;
+	while(1)
+	{
+		char *newline;
+		char *equals = xstrchr(p, '=');
+		if (!equals)
+			break;
+		*equals = '\0';
+		
+		newline = xstrchr(equals + 1, '\n');
+		if (!newline)
+		{
+			lineCount++;
+			break;
+		}
+		*newline = '\0';
+		lineCount++;
+		p = newline + 1;
+	}
+
+	p = (char *)hMem;
+	for(i = 0; i < size; i++)
+	{
+		if(p[i] == '\r')
+			p[i] = '\0';
+	}
+
+	hStructArray = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, lineCount * sizeof(struct mimeType));
+	if(!hStructArray)
+		goto error;
+
+	mimeTypes = (struct mimeType *)hStructArray;
+	mimeTypesSize = lineCount;
+
+	p = (char *)hMem;
+	for(i = 0; i < lineCount; i++)
+	{
+		mimeTypes[i].ext = p;
+		p += lstrlenA(p) + 1;
+		mimeTypes[i].mime = p;
+		p += lstrlenA(p) + 1;
+	}
+
+	/* HeapFree(GetProcessHeap(), 0, hMem); */
+	CloseHandle(hFile);
+	return 1;
+
+error:
+	CloseHandle(hFile);
+	if(hMem)
+		HeapFree(GetProcessHeap(), 0, hMem);
+	if(hStructArray)
+		HeapFree(GetProcessHeap(), 0, hStructArray);
+	return 0;
+}
+
 const char *GetMimeType(const char *filename)
 {
+	size_t i;
 	const char *ext = NULL;
 	const char *dot = xstrrchr(filename, '.');
 
-	if (!dot)
-		return "application/octet-stream";
+	if(!dot)
+		goto end;
 
 	ext = dot + 1;
 
+	for(i = 0; i < mimeTypesSize; i++)
+	{
+		if(lstrcmpiA(ext, mimeTypes[i].ext) == 0)
+			return mimeTypes[i].mime;
+	}
+
+end:
+	return "application/octet-stream";
+
+#if 0
 	if (lstrcmpiA(ext, "txt") == 0) return "text/plain; charset=utf-8";
 	if (lstrcmpiA(ext, "html") == 0) return "text/html; charset=utf-8";
 	if (lstrcmpiA(ext, "htm") == 0) return "text/html; charset=utf-8";
@@ -72,4 +170,5 @@ const char *GetMimeType(const char *filename)
 	if (lstrcmpiA(ext, "xlsx") == 0) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 	return "application/octet-stream";
+#endif
 }
