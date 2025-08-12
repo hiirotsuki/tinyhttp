@@ -39,8 +39,8 @@ typedef struct {
 	char *baseAllocation;
 } threadBuffers;
 
-const char HTTP_HEADER[] = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n";
-const char HTTP_404[] = "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\n404 Not Found\n";
+const char HTTP_HEADER[] = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nServer: TinyHTTP/1.0\r\nConnection: close\r\n\r\n";
+const char HTTP_404[] = "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nServer: TinyHTTP/1.0\r\nConnection: close\r\n\r\n404 Not Found\n";
 
 const char HTML_START[] = 
 "<!DOCTYPE html>\n"
@@ -132,7 +132,9 @@ void SendFile(SOCKET clientSocket, const char *filePath, char *fileBuffer)
 	ConsoleWrite("\n");
 	wsprintfA(header, "HTTP/1.1 200 OK\r\n"
 					 "Content-Type: %s\r\n"
-					 "Content-Length: %lu\r\n\r\n", GetMimeType(filePath), GetFileSize(hFile, NULL));
+					 "Content-Length: %lu\r\n"
+					 "Server: TinyHTTP/1.0\r\n"
+					 "Connection: close\r\n\r\n", GetMimeType(filePath), GetFileSize(hFile, NULL));
 	send(clientSocket, header, lstrlenA(header), 0);
 
 	if (fileBuffer)
@@ -314,7 +316,8 @@ void HandleRequest(SOCKET clientSocket, threadBuffers *buffers)
 
 	if (lstrcmpA(method, "GET") != 0)
 	{
-		send(clientSocket, HTTP_404, sizeof(HTTP_404) - 1, 0);
+		const char teapotResponse[] = "HTTP/1.1 418 I'm a teapot\r\nContent-Type: text/plain\r\nServer: TinyHTTP/1.0\r\nConnection: close\r\n\r\n418 I'm a teapot\nThe requested entity body is short and stout.\n";
+		send(clientSocket, teapotResponse, sizeof(teapotResponse) - 1, 0);
 		return;
 	}
 
@@ -375,7 +378,7 @@ DWORD WINAPI ClientThread(LPVOID param)
 	}
 	else
 	{
-		const char errorResponse[] = "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\n\r\n500 Internal Server Error\n";
+		const char errorResponse[] = "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nServer: TinyHTTP/1.0\r\nConnection: close\r\n\r\n500 Internal Server Error\n";
 		send(clientSocket, errorResponse, sizeof(errorResponse) - 1, 0);
 	}
 
@@ -414,7 +417,7 @@ unsigned short ReadPortFromIni(void)
 
 	port = GetPrivateProfileIntW(L"tinyhttp", L"port", 8080, iniPath);
 
-	if (port < 1 || port > sizeof(u_short))
+	if (port < 1 || port > 65534)
 		port = 8080;
 	
 	return port;
