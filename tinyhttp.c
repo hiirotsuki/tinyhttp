@@ -18,6 +18,10 @@
 #include "iphlp.h"
 #endif
 
+#ifdef __GNUC__
+#include "iphlp.h"
+#endif
+
 #ifndef __GNUC__
 #define __attribute__(x)
 #endif
@@ -496,6 +500,9 @@ int main(int argc, char *argv[])
 
 	/* TODO: figure out when this was introduced... */
 #if _MSC_VER > 1000
+	DisplayAvailableIPs(port);
+#endif
+#ifdef __GNUC__
 	DisplayAvailableIPs(port);
 #endif
 
